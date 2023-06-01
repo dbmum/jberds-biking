@@ -5,10 +5,8 @@ import numpy as np
 import seaborn as sns
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers
+from tensorflow.python.keras import layers
 from sklearn.model_selection import train_test_split
-
-print(tf.__version__)
 
 # Make NumPy printouts easier to read
 np.set_printoptions(precision=3, suppress=True)
@@ -20,6 +18,13 @@ bike_rentals_holdout = pd.read_csv("https://raw.githubusercontent.com/byui-cse/c
 
 # Define X/Y
 bike_rentals["total_rentals"] = bike_rentals.casual + bike_rentals.registered
+y = bike_rentals.total_rentals
+X = bike_rentals.drop("total_rentals", axis='columns')
 
 # Set aside the test set immediately
-bike_rentals = train_test_split()
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
+
+# Normalize the data
+normalizer = tf.keras.layers.Normalization(axis=-1)
+normalizer.adapt(np.array(X_train))
+print(normalizer.mean.numpy())
