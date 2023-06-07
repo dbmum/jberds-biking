@@ -13,23 +13,86 @@ from keras.callbacks import EarlyStopping
 import numpy as np
 from keras.utils import timeseries_dataset_from_array
 
-
-timesteps=30
-batch_size=720
+# Important values for our model, these values define that our LSTM layers will receive 24 items of data at a time which represent 1 day.
+timesteps=24
+window_size=24
 
 df = pd.read_csv('https://raw.githubusercontent.com/byui-cse/cse450-course/master/data/bikes.csv')
 
-def time_data_sliding_window_generator(X_train_array, y_train_array):
-# Create the dataset using timeseries_dataset_from_array
-    dataset = timeseries_dataset_from_array(
-        X_train_array,
-        y_train_array,
-        sequence_length=timesteps,
-        batch_size=batch_size
-    )
-    return dataset
+def time_data_sliding_window_generator(X_train):
+    """
+    :param X_train: Takes a dataset to transform
+    :return: Returns a dataset which contains the dimensions [batch_size, timesteps, window_size, data]
+    """
+    stride = timesteps  # Number of timesteps to skip between windows
 
-def preprocess_data(df, test_size=.3, random_state=17):
+    # Get the number of samples and number of features in the input data
+    num_samples, num_features = X_train.shape
+
+    # Calculate the number of windows based on the window size and stride
+    num_windows = (num_samples - window_size) // stride + 1
+
+    # Initialize an empty array to store the windowed data
+    windowed_data = np.zeros((num_samples, window_size, num_features))
+
+    # Create the sliding window dataset
+    for i in range(num_windows):
+        start_index = i * stride
+        end_index = start_index + window_size
+        window = X_train[start_index:end_index, :]
+        windowed_data[end_index-1] = window
+
+    # Print the shape of the sliding window dataset
+    print("Sliding window dataset shape:", windowed_data.shape)
+    return windowed_data
+
+
+def dataset_expander(*args):
+    """
+    :param args: A tuple of numpy arrays to transform
+    :return: A tuple of numpy arrays with the last (window_size - 1) * 2 rows added onto array_2.
+             This enables us to later drop these rows without having NaN values at the beginning of our test and holdout set
+    """
+    modified_data = []
+    for item in args:
+        # Scale the data
+        array_1, array_2 = item
+        combined_array = np.concatenate((array_1[-((window_size - 1) * 2):], array_2), axis=0)
+        modified_data.extend([array_1, combined_array])
+    return tuple(modified_data)
+
+def dataset_trimmer(*args):
+    """
+    :param args: A tuple of numpy arrays to trim
+    :return: The trimmed tuple of numpy arrays
+    """
+    modified_data = []
+    for item in args:
+        modified_item = item[(window_size - 1) * 2:]
+        modified_data.append(modified_item)
+    return tuple(modified_data)
+
+def data_scaler(*args):
+    """
+    :param args: Tuple of Dataframes to apply a MinMaxScale operation to
+    :return: The list of dataframes that have been scaled.
+    """
+    modified_dataframes = []
+    for item in args:
+        # Scale the data
+        minmax_scaler = MinMaxScaler()
+        df1_1, df1_2 = item
+        df1_1 = minmax_scaler.fit_transform(df1_1)
+        df1_2 = minmax_scaler.transform(df1_2) # use the same scale on the testing data
+        modified_dataframes.extend([df1_1, df1_2])
+    return tuple(modified_dataframes)
+
+def preprocess_data(df, test_size=.3):
+    """
+    :param df: The dataframe for preprocessing
+    :param test_size: The amount of the dataframe to use for testing
+    :return: The various dataframes needed by our model's branches
+    """
     # Preprocessing to create 3 branches
     df['dteday'] = pd.to_datetime(df['dteday'])
     df['month'] = df['dteday'].dt.month
@@ -76,7 +139,7 @@ def preprocess_data(df, test_size=.3, random_state=17):
     df['registered_q3'] = df['registered'].shift().rolling(window=window_size).quantile(0.75)
 
     # Drop rows with NaN values resulting from shifting
-    df = df.dropna()
+    #df = df.dropna()
 
     # Encode hour as cyclical feature
     df['hour_sin'] = np.sin(2 * np.pi * df['hr'] / 24)
@@ -116,18 +179,23 @@ def preprocess_data(df, test_size=.3, random_state=17):
     all_encoded = pd.get_dummies(df, columns=all_encode)
 
     # Split training and testing data
-    X_train_all, X_test_all, y_train, y_test = train_test_split(all_encoded, y, test_size=test_size, random_state=random_state, shuffle=False)
-    X_train_time, X_test_time, _, _, = train_test_split(time_encoded, y, test_size=test_size, random_state=random_state, shuffle=False)
-    X_train_temp, X_test_temp, _, _, = train_test_split(temp_encoded, y, test_size=test_size, random_state=random_state, shuffle=False)
+    X_train_all, X_test_all, y_train, y_test = train_test_split(all_encoded, y, test_size=test_size, shuffle=False)
+    X_train_time, X_test_time, _, _, = train_test_split(time_encoded, y, test_size=test_size, shuffle=False)
+    X_train_temp, X_test_temp, _, _, = train_test_split(temp_encoded, y, test_size=test_size, shuffle=False)
 
-    # Scale the data
-    minmax_scaler = MinMaxScaler()
-    X_train_all = minmax_scaler.fit_transform(X_train_all) # fit the scale to the training data
-    X_test_all = minmax_scaler.transform(X_test_all) # use the same scale on the testing data
-    X_train_time = minmax_scaler.fit_transform(X_train_time) # fit the scale to the training data
-    X_test_time = minmax_scaler.transform(X_test_time) # use the same scale on the testing data
-    X_train_temp = minmax_scaler.fit_transform(X_train_temp) # fit the scale to the training data
-    X_test_temp = minmax_scaler.transform(X_test_temp) # use the same scale on the testing data
+    # Normalize data
+    X_train_all, X_test_all, X_train_time, X_test_time, X_train_temp, X_test_temp = data_scaler((X_train_all, X_test_all),(X_train_time, X_test_time),(X_train_temp, X_test_temp))
+
+    # Add the first rows of each tuple item onto the last
+    X_train_all, X_test_all, X_train_time, X_test_time, X_train_temp, X_test_temp = dataset_expander((X_train_all, X_test_all),(X_train_time, X_test_time),(X_train_temp, X_test_temp))
+
+    X_train_time = time_data_sliding_window_generator(X_train_time)
+    X_train_temp = time_data_sliding_window_generator(X_train_temp)
+    X_test_time = time_data_sliding_window_generator(X_test_time)
+    X_test_temp = time_data_sliding_window_generator(X_test_temp)
+
+    # Remove first rows of all datasets
+    X_train_all, X_test_all, X_train_time, X_test_time, X_train_temp, X_test_temp, y_train = dataset_trimmer(X_train_all, X_test_all, X_train_time, X_test_time, X_train_temp, X_test_temp, y_train)
 
     return X_train_all, X_test_all, X_train_time, X_test_time, X_train_temp, X_test_temp, y_train, y_test
 
@@ -156,7 +224,7 @@ fifth_recurrent_time = LSTM(units=128, activation='relu', kernel_regularizer=reg
 y_time_out = TimeDistributed(Dense(units=2, name='output_time'))(fifth_recurrent_time)
 
 # Begin structure for RNN
-input_layer_temp = Input(shape=(timesteps, 15), name='input_temp')
+input_layer_temp = Input(shape=(timesteps, 21), name='input_temp')
 first_recurrent_temp = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(input_layer_temp)
 second_recurrent_temp = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(first_recurrent_temp)
 third_recurrent_temp = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(second_recurrent_temp)
@@ -166,10 +234,15 @@ y_temp_out = TimeDistributed(Dense(units='2', name='output_time'))(fifth_recurre
 
 # Build Predictions
 concatenated = Concatenate()([y_all_out_reshaped, y_time_out, y_temp_out])
-final_dense_first = Dense(units='32', activation='relu', kernel_regularizer=regularizers.l2(0.01))(concatenated)
-final_dense_second = Dense(units='16', activation='relu', kernel_regularizer=regularizers.l2(0.01))(final_dense_first)
-final_dense_third = Dense(units='8', activation='relu', kernel_regularizer=regularizers.l2(0.01))(final_dense_second)
-y1_y2_combined = Dense(units='2', name='output_time')(final_dense_third)
+final_dense_first = TimeDistributed(Dense(units='256', activation='relu', kernel_regularizer=regularizers.l2(0.01)))(concatenated)
+final_dense_second = TimeDistributed(Dense(units='128', activation='relu', kernel_regularizer=regularizers.l2(0.01)))(final_dense_first)
+final_dense_third = TimeDistributed(Dense(units='64', activation='relu', kernel_regularizer=regularizers.l2(0.01)))(final_dense_second)
+final_dense_fourth = TimeDistributed(Dense(units='32', activation='relu', kernel_regularizer=regularizers.l2(0.01)))(final_dense_third)
+final_dense_fifth = TimeDistributed(Dense(units='16', activation='relu', kernel_regularizer=regularizers.l2(0.01)))(final_dense_fourth)
+final_dense_sixth = TimeDistributed(Dense(units='8', activation='relu', kernel_regularizer=regularizers.l2(0.01)))(final_dense_fifth)
+# Remove Time Data
+flattened = Flatten()(final_dense_fifth)
+y1_y2_combined = Dense(units='2', name='output_time')(flattened)
 
 # Initialize the Neural Network
 model = Model(inputs=[input_layer_all, input_layer_time, input_layer_temp], outputs=y1_y2_combined)
@@ -177,17 +250,14 @@ model = Model(inputs=[input_layer_all, input_layer_time, input_layer_temp], outp
 optimizer = tf.keras.optimizers.Adam(lr=0.001)
 
 # Compile model
-model.compile(loss={'casual_output': 'mse'},
-              metrics={'casual_output':tf.keras.metrics.RootMeanSquaredError()})
+model.compile(loss={'output_time': 'mse'},
+              metrics={'output_time':tf.keras.metrics.RootMeanSquaredError()})
 
-# Convert X_train and y_train DataFrames to numpy arrays
-X_train_array = X_train.to_numpy()
-y_train_array = y_train.to_numpy()
-
+print(model.summary())
 
 # Fit the model and store the training history
-history = model.fit([X_train_all, data_loader_time_train, data_loader_temp_train], y_train,
-                    validation_data=([X_test_all, data_loader_time_test, data_loader_temp_test], y_test), epochs=200, verbose=0)
+history = model.fit([X_train_all, X_train_time, X_train_temp], y_train,
+                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), epochs=1, verbose=0)
 
 # Evaluate the model on the training data
 loss, rmse = model.evaluate([X_train_all, X_train_time, X_train_temp], y_train, verbose=1)
