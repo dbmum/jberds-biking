@@ -41,7 +41,7 @@ class SpencerModel(NeuralNetworkModel):
         x = Dense(80, activation='tanh')(inputs)
         x = Dense(432, activation='tanh')(x)
         x = Dense(272, activation='relu')(x)
-        output1 = Dense(1,activation='relu')(x)
+        output1 = Dense(1, activation='relu')(x)
         output2 = Dense(1, activation='relu')(x)
 
         model = Model(inputs=inputs, outputs=[output1, output2])
