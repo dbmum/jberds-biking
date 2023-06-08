@@ -18,7 +18,10 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras import Input, Model
 
-class SpencerModel:
+from neural_network_model import NeuralNetworkModel
+
+
+class SpencerModel(NeuralNetworkModel):
 
     def __init__(self):
         self.history = None

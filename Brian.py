@@ -14,7 +14,7 @@ from keras.callbacks import EarlyStopping
 
 df = pd.read_csv('https://raw.githubusercontent.com/byui-cse/cse450-course/master/data/bikes.csv')
 df['target'] = df['casual'] + df['registered']
-df['dteday'] = pd.to_datetime(df['dteday'])
+df['dteday'] = pd.to_datetime(df['dteday'], format='%d/%m/%y')
 initial_date = pd.to_datetime('2011-01-01')
 df['days_since_initial'] = (df['dteday'] - initial_date).dt.days
 df.drop(columns='dteday', inplace=True)
