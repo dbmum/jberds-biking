@@ -201,6 +201,7 @@ def preprocess_dataframe(df, df2=None, mode='train'):
     if mode is not "train":
         train_all, train_time, train_temp, y_train = preprocess(df2)
         train_all, all_encoded, train_time, time_encoded, train_temp, temp_encoded = dataset_expander((train_all, all_encoded), (train_time, time_encoded), (train_temp, temp_encoded))
+        _, y = dataset_expander((y_train, y))
 
     # Normalize data
     X_all, X_time, X_temp = data_scaler(all_encoded, time_encoded, temp_encoded)
