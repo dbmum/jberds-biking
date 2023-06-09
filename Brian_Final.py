@@ -146,10 +146,9 @@ def preprocess(df):
     y = pd.DataFrame()
     try:
         y = df[columns_to_drop]
+        df.drop(columns=columns_to_drop, axis=1, inplace=True)
     except KeyError:
         pass
-
-    df.drop(columns=columns_to_drop, axis=1, inplace=True)
 
     all_encode = ['weathersit', 'season', 'month', 'hr']
     all_encoded = pd.get_dummies(df, columns=all_encode)
@@ -262,7 +261,7 @@ print(model.summary())
 
 # Fit the model and store the training history
 history = model.fit([X_train_all, X_train_time, X_train_temp], y_train,
-                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), shuffle=False, epochs=1, verbose=True)
+                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), shuffle=False, epochs=50, verbose=True)
 
 # Evaluate the model on the training data
 loss, rmse = model.evaluate([X_train_all, X_train_time, X_train_temp], y_train, verbose=1)
@@ -280,7 +279,7 @@ print(f'rmse: {rmse}')
 predictions = model.predict([X_test_all, X_test_time, X_test_temp])
 y_test_casual = y_test['casual']
 y_test_registered = y_test['registered']
-y_test_total = test['casual'] + test['registered']
+y_test_total = y_test['casual'] + y_test['registered']
 predictions_casual = [y1 for y1, _ in predictions]
 predictions_registered = [y2 for _, y2 in predictions]
 predictions_total = [y1 + y2 for y1, y2 in zip(predictions_casual, predictions_registered)]
