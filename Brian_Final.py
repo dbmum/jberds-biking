@@ -74,6 +74,7 @@ def dataset_trimmer(*args):
 scaler_all = MinMaxScaler()
 scaler_time = MinMaxScaler()
 scaler_temp = MinMaxScaler()
+
 def data_scaler(df1, df2, df3, mode='train'):
     """
     :param args: Tuple of Dataframes to apply a MinMaxScale operation to
@@ -261,8 +262,7 @@ print(model.summary())
 
 # Fit the model and store the training history
 history = model.fit([X_train_all, X_train_time, X_train_temp], y_train,
-                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), shuffle=False, epochs=200, verbose=True)
-
+                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), shuffle=False, epochs=1, verbose=True)
 
 # Evaluate the model on the training data
 loss, rmse = model.evaluate([X_train_all, X_train_time, X_train_temp], y_train, verbose=1)
