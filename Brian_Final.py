@@ -280,13 +280,20 @@ print(f'rmse: {rmse}')
 predictions = model.predict([X_test_all, X_test_time, X_test_temp])
 y_test_casual = y_test['casual']
 y_test_registered = y_test['registered']
+y_test_total = test['casual'] + test['registered']
 predictions_casual = [y1 for y1, _ in predictions]
 predictions_registered = [y2 for _, y2 in predictions]
+predictions_total = [y1 + y2 for y1, y2 in zip(predictions_casual, predictions_registered)]
+
+df_predictions = pd.DataFrame({"total": predictions_total})
+df_predictions.to_csv("predictions_total.csv", index=False)
 
 # Get the r^2
 r2_casual = r2_score(y_test_casual, predictions_casual)
 r2_registered = r2_score(y_test_registered, predictions_registered)
+r2_total = r2_score(y_test_total, predictions_total)
 print(f"R^2 Casual: {r2_casual}, R^2 Registered: {r2_registered}")
+print(f"R^2 Total: {r2_total}")
 print(f'Epochs run: {len(history.epoch)}')
 print("Done!")
 
