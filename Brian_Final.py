@@ -20,31 +20,21 @@ train = df.iloc[:int(df.shape[0] * train_size)]  # First 90% of the DataFrame
 test = df.iloc[-(int(df.shape[0]) - int(df.shape[0] * train_size)):]  # Last 10% of the DataFrame
 full_column_list = ['date_cos', 'date_sin', 'days_since_initial', 'feels_like_c', 'holiday', 'hour_cos', 'hour_sin', 'hr', 'hr_0', 'hr_1', 'hr_10', 'hr_11', 'hr_12', 'hr_13', 'hr_14', 'hr_15', 'hr_16', 'hr_17', 'hr_18', 'hr_19', 'hr_2', 'hr_20', 'hr_21', 'hr_22', 'hr_23', 'hr_3', 'hr_4', 'hr_5', 'hr_6', 'hr_7', 'hr_8', 'hr_9', 'hum', 'month', 'month_1', 'month_10', 'month_11', 'month_12', 'month_2', 'month_3', 'month_4', 'month_5', 'month_6', 'month_7', 'month_8', 'month_9', 'month_cos', 'month_sin', 'season', 'season_1', 'season_2', 'season_3', 'season_4', 'temp_c', 'weathersit_1', 'weathersit_2', 'weathersit_3', 'weathersit_4', 'windspeed', 'workingday']
 
-def time_data_sliding_window_generator(X_train):
+def time_data_sliding_window_generator(df):
     """
     :param X_train: Takes a dataset to transform
     :return: Returns a nparray which contains the dimensions [batch_size, timesteps, window_size, data]
     """
-    stride = timesteps  # Number of timesteps to skip between windows
+    num_samples = len(df) - window_size + 1
+    num_features = df.shape[1]
 
-    # Get the number of samples and number of features in the input data
-    num_samples, num_features = X_train.shape
+    transformed_data = np.empty((num_samples, window_size, num_features))
 
-    # Calculate the number of windows based on the window size and stride
-    num_windows = (num_samples - window_size) // stride + 1
+    for i in range(num_samples):
+        window_data = df.iloc[i:i+window_size].values
+        transformed_data[i] = window_data
 
-    # Initialize an empty array to store the windowed data
-    windowed_data = np.zeros((num_samples, window_size, num_features))
-
-    # Create the sliding window dataset
-    for i in range(num_windows):
-        start_index = i * stride
-        end_index = start_index + window_size
-        window = X_train.iloc[start_index:end_index, :]
-        windowed_data[end_index-1] = window
-
-    return windowed_data
-
+    return transformed_data
 
 def dataset_expander(*args):
     """
@@ -68,6 +58,21 @@ def dataset_trimmer(*args):
     modified_data = []
     for item in args:
         modified_item = item[(window_size - 1) * 2:]
+        modified_data.append(modified_item)
+    return tuple(modified_data)
+
+scaler_all = MinMaxScaler()
+scaler_time = MinMaxScaler()
+scaler_temp = MinMaxScaler()
+
+def mod_dataset_trimmer(*args):
+    """
+    :param args: A tuple of numpy arrays to trim
+    :return: The trimmed tuple of numpy arrays
+    """
+    modified_data = []
+    for item in args:
+        modified_item = item[(window_size - 1):]
         modified_data.append(modified_item)
     return tuple(modified_data)
 
@@ -121,6 +126,7 @@ def test_model(model, df_train, df_test):
     return y_out
 
 def preprocess(df):
+    df = df.copy()
     df['dteday'] = pd.to_datetime(df['dteday'])
     df['month'] = df['dteday'].dt.month
     initial_date = pd.to_datetime('2011-01-01')
@@ -183,7 +189,7 @@ def preprocess(df):
 
     return all_encoded, time_encoded, temp_encoded, y
 
-def preprocess_dataframe(df):
+def preprocess_dataframe(df, df2=None, mode='train'):
     """
     :param df: The dataframe for preprocessing
     :param test_size: The amount of the dataframe to use for testing
@@ -192,6 +198,10 @@ def preprocess_dataframe(df):
     # Preprocessing to create 3 branches
     all_encoded, time_encoded, temp_encoded, y = preprocess(df)
 
+    if mode is not "train":
+        train_all, train_time, train_temp, y_train = preprocess(df2)
+        train_all, all_encoded, train_time, time_encoded, train_temp, temp_encoded = dataset_expander((train_all, all_encoded), (train_time, time_encoded), (train_temp, temp_encoded))
+
     # Normalize data
     X_all, X_time, X_temp = data_scaler(all_encoded, time_encoded, temp_encoded)
 
@@ -199,41 +209,42 @@ def preprocess_dataframe(df):
     X_temp = time_data_sliding_window_generator(pd.DataFrame(X_temp))
 
     # Remove first rows of all datasets
-    X_all, X_time, X_temp, y = dataset_trimmer(X_all, X_time, X_temp, y)
+    X_all, y = dataset_trimmer(X_all, y)
+    X_time, X_temp = mod_dataset_trimmer(X_time, X_temp)
 
     return X_all, X_time, X_temp, y
 
-X_train_all, X_train_time, X_train_temp, y_train, = preprocess_dataframe(df)
-X_test_all, X_test_time, X_test_temp, y_test = preprocess_dataframe(test)
+X_train_all, X_train_time, X_train_temp, y_train, = preprocess_dataframe(train)
+X_test_all, X_test_time, X_test_temp, y_test = preprocess_dataframe(test, df2=train, mode="test")
 
-# Begin structure for branch that fits the whole dataset:
 input_layer_all = Input(shape=(60,), name='input_all')
-first_dense_all = Dense(units='144', activation='tanh', kernel_regularizer=regularizers.l2(0.01))(input_layer_all)
-dropout_1_all = Dropout(0.25)(first_dense_all)
-second_dense_all = Dense(units='80', activation='tanh', kernel_regularizer=regularizers.l2(0.01))(dropout_1_all)
-dropout_2_all = Dropout(0.25)(second_dense_all)
-third_dense_all = Dense(units='432', activation='tanh', kernel_regularizer=regularizers.l2(0.01))(dropout_2_all)
-dropout_3_all = Dropout(0.25)(third_dense_all)
-fourth_dense_all = Dense(units='272', activation='relu', kernel_regularizer=regularizers.l2(0.01))(dropout_3_all)
-y_all_out = Dense(units='2', name='output_all')(fourth_dense_all)
+first_dense_all = Dense(units='512', activation='relu', kernel_regularizer=regularizers.l2(0.01))(input_layer_all)
+dropout_1_all = Dropout(0.1)(first_dense_all)
+second_dense_all = Dense(units='256', activation='relu', kernel_regularizer=regularizers.l2(0.01))(dropout_1_all)
+third_dense_all = Dense(units='128', activation='relu', kernel_regularizer=regularizers.l2(0.01))(second_dense_all)
+fourth_dense_all = Dense(units='64', activation='relu', kernel_regularizer=regularizers.l2(0.01))(third_dense_all)
+fifth_dense_all = Dense(units='32', activation='relu', kernel_regularizer=regularizers.l2(0.01))(fourth_dense_all)
+sixth_dense_all = Dense(units='16', activation='relu', kernel_regularizer=regularizers.l2(0.01))(fifth_dense_all)
+seventh_dense_all = Dense(units='8', activation='relu', kernel_regularizer=regularizers.l2(0.01))(sixth_dense_all)
+y_all_out = Dense(units='2', name='output_all')(seventh_dense_all)
 y_all_out_reshaped = RepeatVector(int(timesteps))(y_all_out)
 
 # Begin structure for RNN
 input_layer_time = Input(shape=(timesteps, 60), name='input_time')
-first_recurrent_time = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(input_layer_time)
-second_recurrent_time = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(first_recurrent_time)
-third_recurrent_time = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(second_recurrent_time)
-fourth_recurrent_time = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(third_recurrent_time)
-fifth_recurrent_time = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(fourth_recurrent_time)
+first_recurrent_time = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(input_layer_time)
+second_recurrent_time = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(first_recurrent_time)
+third_recurrent_time = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(second_recurrent_time)
+fourth_recurrent_time = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(third_recurrent_time)
+fifth_recurrent_time = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(fourth_recurrent_time)
 y_time_out = TimeDistributed(Dense(units=2, name='output_time'))(fifth_recurrent_time)
 
 # Begin structure for RNN
 input_layer_temp = Input(shape=(timesteps, 60), name='input_temp')
-first_recurrent_temp = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(input_layer_temp)
-second_recurrent_temp = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(first_recurrent_temp)
-third_recurrent_temp = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(second_recurrent_temp)
-fourth_recurrent_temp = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(third_recurrent_temp)
-fifth_recurrent_temp = LSTM(units=128, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(fourth_recurrent_temp)
+first_recurrent_temp = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(input_layer_temp)
+second_recurrent_temp = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(first_recurrent_temp)
+third_recurrent_temp = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(second_recurrent_temp)
+fourth_recurrent_temp = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(third_recurrent_temp)
+fifth_recurrent_temp = LSTM(units=16, activation='relu', kernel_regularizer=regularizers.l2(0.01), return_sequences=True)(fourth_recurrent_temp)
 y_temp_out = TimeDistributed(Dense(units='2', name='output_time'))(fifth_recurrent_temp)
 
 # Build Predictions
@@ -261,7 +272,7 @@ print(model.summary())
 
 # Fit the model and store the training history
 history = model.fit([X_train_all, X_train_time, X_train_temp], y_train,
-                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), shuffle=False, epochs=50, verbose=True)
+                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), shuffle=False, epochs=10, verbose=True)
 
 # Evaluate the model on the training data
 loss, rmse = model.evaluate([X_train_all, X_train_time, X_train_temp], y_train, verbose=1)
