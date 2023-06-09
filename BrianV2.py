@@ -257,7 +257,7 @@ print(model.summary())
 
 # Fit the model and store the training history
 history = model.fit([X_train_all, X_train_time, X_train_temp], y_train,
-                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), epochs=1, verbose=0)
+                    validation_data=([X_test_all, X_test_time, X_test_temp], y_test), shuffle=False, epochs=200, verbose=True)
 
 # Evaluate the model on the training data
 loss, rmse = model.evaluate([X_train_all, X_train_time, X_train_temp], y_train, verbose=1)
